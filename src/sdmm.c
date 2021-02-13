@@ -31,37 +31,37 @@
 #include "diskio.h"	/* Common include file for FatFs and disk I/O layer */
 
 #include <stdio.h>
-#include <wiringPi.h>
+#include "bcm2835.h"
 
 /*-------------------------------------------------------------------------*/
 /* Platform dependent macros and functions needed to be modified           */
 /*-------------------------------------------------------------------------*/
 
-#define DO_PIN 13
-#define DI_PIN 12
-#define CK_PIN 14
-#define CS_PIN 10
+#define DO_PIN RPI_GPIO_P1_21
+#define DI_PIN RPI_GPIO_P1_19
+#define CK_PIN RPI_GPIO_P1_23
+#define CS_PIN RPI_GPIO_P1_24
 
 #define DO_INIT()					/* Initialize port for MMC DO as input */
-#define DO		digitalRead( DO_PIN )	/* Test for MMC DO ('H':true, 'L':false) */
+#define DO		bcm2835_gpio_lev(DO_PIN)	/* Test for MMC DO ('H':true, 'L':false) */
 
-#define DI_INIT()	pullUpDnControl( DI_PIN, PUD_UP ); pinMode( DI_PIN, OUTPUT )
-#define DI_H()		digitalWrite( DI_PIN, HIGH ) 	/* Set MMC DI "high" */
-#define DI_L()		digitalWrite( DI_PIN, LOW )	/* Set MMC DI "low" */
+#define DI_INIT()	bcm2835_gpio_fsel(DI_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(DI_PIN)
+#define DI_H()		bcm2835_gpio_set(DI_PIN) 	/* Set MMC DI "high" */
+#define DI_L()		bcm2835_gpio_clr(DI_PIN)	/* Set MMC DI "low" */
 
-#define CK_INIT()	pullUpDnControl( CK_PIN, PUD_UP ); pinMode( CK_PIN, OUTPUT )
-#define CK_H()		digitalWrite( CK_PIN, HIGH )		/* Set MMC SCLK "high" */
-#define	CK_L()		digitalWrite( CK_PIN, LOW ) 		/* Set MMC SCLK "low" */
+#define CK_INIT()	bcm2835_gpio_fsel(CK_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_clr(CK_PIN)
+#define CK_H()		bcm2835_gpio_set(CK_PIN)		/* Set MMC SCLK "high" */
+#define	CK_L()		bcm2835_gpio_clr(CK_PIN) 		/* Set MMC SCLK "low" */
 
-#define CS_INIT()	pullUpDnControl( CS_PIN, PUD_UP ); pinMode( CS_PIN, OUTPUT )	/* Initialize port for MMC CS as output */
-#define	CS_H()		digitalWrite( CS_PIN, HIGH )	/* Set MMC CS "high" */
-#define CS_L()		digitalWrite( CS_PIN, LOW )	/* Set MMC CS "low" */
+#define CS_INIT()	bcm2835_gpio_fsel(CS_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(CS_PIN)
+#define	CS_H()		bcm2835_gpio_set(CS_PIN)	/* Set MMC CS "high" */
+#define CS_L()		bcm2835_gpio_clr(CS_PIN)	/* Set MMC CS "low" */
 
 
 static
 void dly_us (UINT n)	/* Delay n microseconds (avr-gcc -Os) */
 {
-	delayMicroseconds(n);
+    bcm2835_delayMicroseconds(n);
 }
 
 
@@ -220,7 +220,7 @@ void deselect (void)
 /*-----------------------------------------------------------------------*/
 
 static
-int select (void)	/* 1:OK, 0:Timeout */
+int selectSD (void)	/* 1:OK, 0:Timeout */
 {
 	BYTE d;
 
@@ -315,7 +315,7 @@ BYTE send_cmd (		/* Returns command response (bit7==1:Send failed)*/
 	/* Select the card and wait for ready except to stop multiple block read */
 	if (cmd != CMD12) {
 		deselect();
-		if (!select()) return 0xFF;
+		if (!selectSD()) return 0xFF;
 	}
 
 	/* Send a command packet */
@@ -518,7 +518,7 @@ DRESULT disk_ioctl (
 	res = RES_ERROR;
 	switch (ctrl) {
 		case CTRL_SYNC :		/* Make sure that no pending write process */
-			if (select()) res = RES_OK;
+			if (selectSD()) res = RES_OK;
 			break;
 
 		case GET_SECTOR_COUNT :	/* Get number of sectors on the disk (DWORD) */
