@@ -42,18 +42,18 @@
 #define CK_PIN RPI_GPIO_P1_23
 #define CS_PIN RPI_GPIO_P1_24
 
-#define DO_INIT()					/* Initialize port for MMC DO as input */
+#define DO_INIT()	bcm2835_gpio_set_pud(DO_PIN, BCM2835_GPIO_PUD_UP)				/* Initialize port for MMC DO as input */
 #define DO		bcm2835_gpio_lev(DO_PIN)	/* Test for MMC DO ('H':true, 'L':false) */
 
-#define DI_INIT()	bcm2835_gpio_fsel(DI_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(DI_PIN)
+#define DI_INIT()	bcm2835_gpio_set_pud(DI_PIN, BCM2835_GPIO_PUD_OFF); bcm2835_gpio_fsel(DI_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(DI_PIN)
 #define DI_H()		bcm2835_gpio_set(DI_PIN) 	/* Set MMC DI "high" */
 #define DI_L()		bcm2835_gpio_clr(DI_PIN)	/* Set MMC DI "low" */
 
-#define CK_INIT()	bcm2835_gpio_fsel(CK_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_clr(CK_PIN)
+#define CK_INIT()	bcm2835_gpio_set_pud(CK_PIN, BCM2835_GPIO_PUD_OFF); bcm2835_gpio_fsel(CK_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_clr(CK_PIN)
 #define CK_H()		bcm2835_gpio_set(CK_PIN)		/* Set MMC SCLK "high" */
 #define	CK_L()		bcm2835_gpio_clr(CK_PIN) 		/* Set MMC SCLK "low" */
 
-#define CS_INIT()	bcm2835_gpio_fsel(CS_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(CS_PIN)
+#define CS_INIT()	bcm2835_gpio_set_pud(CS_PIN, BCM2835_GPIO_PUD_OFF); bcm2835_gpio_fsel(CS_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(CS_PIN)
 #define	CS_H()		bcm2835_gpio_set(CS_PIN)	/* Set MMC CS "high" */
 #define CS_L()		bcm2835_gpio_clr(CS_PIN)	/* Set MMC CS "low" */
 
