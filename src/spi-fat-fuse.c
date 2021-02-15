@@ -1,6 +1,7 @@
 /*
   FUSE: Filesystem in Userspace
   Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
+  Copyright (C) 2021  Alligator Descartes <alligator.descartes@hermitretro.com>
 
   This program can be distributed under the terms of the GNU GPLv2.
   See the file COPYING.
@@ -8,14 +9,10 @@
 
 /** @file
  *
- * minimal example filesystem using high-level API
- *
- * Compile with:
- *
- *     gcc -Wall hello.c `pkg-config fuse3 --cflags --libs` -o hello
+ * SPI bit-banged FAT filesystem using high-level API
  *
  * ## Source code ##
- * \include hello.c
+ * \include spi-fat-fuse.c
  */
 
 
@@ -303,10 +300,6 @@ static const struct fuse_operations spi_fat_fuse_oper = {
 static void show_help(const char *progname)
 {
 	printf("usage: %s [options] <mountpoint>\n\n", progname);
-	printf("File-system specific options:\n"
-	       "    --name=<s>          Name of the \"hello\" file\n"
-	       "                        (default: \"hello\")\n"
-	       "\n");
 }
 
 int main(int argc, char *argv[])
