@@ -90,4 +90,4 @@ Things I tried:
 * FatFS and Generic code are covered by their own permissive licence. See sdmm.c, ff.c, ff.h, diskio.h and ffconf.h for specifics
 * spi-fat-fuse.c is covered by GNU GPL V3
 * Anything else within this package is covered by the
-  GNU Lesser General Public License](LICENSE.txt).
+  [GNU Lesser General Public License](LICENSE.txt).
