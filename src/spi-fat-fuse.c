@@ -235,6 +235,9 @@ readdir_cleanup:
     }
 
     if ( rv == FR_OK ) {
+        filler( buf, ".", NULL, 0, 0 );
+        filler( buf, "..", NULL, 0, 0 );
+
         currentFileInfo = &fileinfo[0];
         for ( i = 0 ; i < nfileinfo ; i++ ) {
             filler( buf, currentFileInfo->fname, NULL, 0, 0 );
