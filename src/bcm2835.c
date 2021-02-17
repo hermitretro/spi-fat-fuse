@@ -33,6 +33,14 @@
 */
 /* #define I2C_V1*/
 
+/* Uncommenting this will force the use of /dev/gpiomem and /dev/mem will
+// be ignored. The rationale for this is that under buildroot on a Raspberry
+// Pi Zero with bit-banged SPI, the initialisation of the SPI subsystem in
+// here stops the bit-banged SPI working. As it's a buildroot environment,
+// it defaultly runs as root.
+*/
+/* #define BCM2835_IGNORE_DEV_MEM */
+
 /* Physical address and size of the peripherals block
 // May be overridden on RPi2
 */
@@ -1859,12 +1867,17 @@ int bcm2835_init(void)
      * If we are not root, try for the new /dev/gpiomem interface and accept
      * the fact that we can only access GPIO
      * else try for the /dev/mem interface and get access to everything
+     *
+     * If BCM2835_IGNORE_DEV_MEM is defined, go straight to /dev/gpiomem
      */
     memfd = -1;
     ok = 0;
-    if (geteuid() == 0
+    if (geteuid() == 0 
 #ifdef BCM2835_HAVE_LIBCAP
 	|| bcm2835_has_capability(CAP_SYS_RAWIO)
+#endif
+#ifdef BCM2835_IGNORE_DEV_MEM
+    && 0
 #endif
 	)
     {
