@@ -1753,21 +1753,21 @@ static FRESULT dir_sdi (	/* FR_OK(0):succeeded, !=0:error */
 
 
 
-
 /*-----------------------------------------------------------------------*/
-/* Directory handling - Move directory table index next                  */
+/* Directory handling - Move directory table index backward/forward      */
 /*-----------------------------------------------------------------------*/
 
-static FRESULT dir_next (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DENIED:Could not stretch */
+static FRESULT _dir_incdec (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DENIED:Could not stretch */
 	DIR* dp,				/* Pointer to the directory object */
-	int stretch				/* 0: Do not stretch table, 1: Stretch table if needed */
+	int stretch,			/* 0: Do not stretch table, 1: Stretch table if needed */
+    int direction           /* -1: Move backward, 1: move forward */
 )
 {
 	DWORD ofs, clst;
 	FATFS *fs = dp->obj.fs;
 
 
-	ofs = dp->dptr + SZDIRE;	/* Next entry */
+	ofs = dp->dptr + (SZDIRE * direction);	/* Next entry */
 	if (ofs >= (DWORD)((FF_FS_EXFAT && fs->fs_type == FS_EXFAT) ? MAX_DIR_EX : MAX_DIR)) dp->sect = 0;	/* Disable it if the offset reached the max value */
 	if (dp->sect == 0) return FR_NO_FILE;	/* Report EOT if it has been disabled */
 
@@ -1812,6 +1812,28 @@ static FRESULT dir_next (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DEN
 }
 
 
+/*-----------------------------------------------------------------------*/
+/* Directory handling - Move directory table index previous              */
+/*-----------------------------------------------------------------------*/
+
+static FRESULT dir_prev (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DENIED:Could not stretch */
+	DIR* dp				/* Pointer to the directory object */
+)
+{
+    return _dir_incdec( dp, 0, -1 );
+}
+
+/*-----------------------------------------------------------------------*/
+/* Directory handling - Move directory table index next                  */
+/*-----------------------------------------------------------------------*/
+
+static FRESULT dir_next (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_DENIED:Could not stretch */
+	DIR* dp,				/* Pointer to the directory object */
+	int stretch				/* 0: Do not stretch table, 1: Stretch table if needed */
+)
+{
+    return _dir_incdec( dp, stretch, 1 );
+}
 
 
 #if !FF_FS_READONLY
@@ -4708,6 +4730,46 @@ FRESULT f_readdir (
 	LEAVE_FF(fs, res);
 }
 
+/*-----------------------------------------------------------------------*/
+/* Set Directory Pointer for f_readdir()                                 */
+/*-----------------------------------------------------------------------*/
+
+FRESULT f_telldir (
+	DIR* dp,			/* Pointer to the open directory object */
+	DWORD *pos		    /* Offset in the directory */
+)
+{
+    FRESULT res;
+
+    if ( pos != 0 ) {
+        *pos = dp->dptr;
+        res = FR_OK;
+    }
+
+    res = FR_NO_FILE;
+    LEAVE_FF(fs, res);
+}
+
+/*-----------------------------------------------------------------------*/
+/* Set Directory Pointer for f_readdir()                                 */
+/*-----------------------------------------------------------------------*/
+
+FRESULT f_seekdir (
+	DIR* dp,			/* Pointer to the open directory object */
+	DWORD pos		    /* Offset in the directory -- previously returned by f_telldir(). If -1, rewind to the previous */
+)
+{
+	FRESULT res;
+    UINT i = 0;
+
+    /** Scan forward */
+    if ( pos != -1 ) {
+        res = dir_sdi(dp, pos);
+    } else {
+        res = dir_prev( dp );
+    }
+    LEAVE_FF(fs, res); 
+}
 
 
 #if FF_USE_FIND

@@ -8,7 +8,7 @@ project (spi-fat-fuse)
 
 include_directories(${PROJECT_SOURCE_DIR}/src)
 
-add_compile_options(-D_FILE_OFFSET_BITS=64 -DBCM2835_IGNORE_DEV_MEM=1)
+add_compile_options(-D_FILE_OFFSET_BITS=64 -DBCM2835_IGNORE_DEV_MEM=1 -Wno-pointer-to-int-cast -Wno-int-to-pointer-cast)
 
 list(APPEND SOURCES
 "${CMAKE_CURRENT_LIST_DIR}/src/bcm2835.c"

@@ -50,14 +50,6 @@ static const struct fuse_opt option_spec[] = {
 	FUSE_OPT_END
 };
 
-static FATFS FatFs;
-static FIL fp;
-
-#define MAX_FILES_PER_DIR 65536
-static FILINFO fileinfo[MAX_FILES_PER_DIR];
-static FILINFO *currentFileInfo;
-static int nfileinfo = 0;
-
 static int FRESULT_TO_OSCODE( int res ) {
     switch ( res ) {
         case FR_OK: {
@@ -129,14 +121,24 @@ static void *spi_fat_fuse_init(struct fuse_conn_info *conn,
 			struct fuse_config *cfg)
 {
 	(void) conn;
-	cfg->kernel_cache = 1;
+	cfg->auto_cache = 1;
+    cfg->attr_timeout = 3600;
 
     bcm2835_init();
 
-    FRESULT res = f_mount(&FatFs, "", 0);
+    FATFS *fatfs = malloc( sizeof( FATFS ) );
+    if ( fatfs == NULL ) {
+        return NULL;
+    }
+    memset( fatfs, 0, sizeof( FATFS ) );
+
+    FRESULT res = f_mount( fatfs, "", 0 );
     if ( res != FR_OK ) {
         printf( "f_mount failed: %d\n", res );
+        fuse_get_context()->private_data = NULL;
     }
+
+    fuse_get_context()->private_data = (void *)fatfs;
 
 	return NULL;
 }
@@ -158,6 +160,10 @@ static int spi_fat_fuse_getattr(const char *path, struct stat *stbuf,
         return 0;
     }
 
+    /**
+     * Retry loop. Depending on the access rate to the underlying card
+     * the f_stat() call can transiently fail
+     */
     int ntries = 0;
     int maxtries = 1;
 fstat_retry:
@@ -168,7 +174,7 @@ fstat_retry:
             return FRESULT_TO_OSCODE( res );
         } else {
             ntries++;
-            delay( 50 );
+            bcm2835_delay( 50 );
             goto fstat_retry;
         }
     }
@@ -185,42 +191,97 @@ fstat_retry:
 	return 0;
 }
 
+static int spi_fat_fuse_opendir( const char *path, struct fuse_file_info *fi ) {
+
+    FRESULT res;
+    DIR *dir;
+    
+    dir = malloc( sizeof( DIR ) );
+    memset( dir, 0, sizeof( DIR ) );
+
+    res = f_opendir( dir, path );
+    if ( res != FR_OK ) {
+        fprintf( stderr, "f_opendir failed: %d\n", res );
+        fi->fh = 0;
+    } else {
+        fi->fh = (uint64_t)dir;
+    }
+
+    return FRESULT_TO_OSCODE( res );
+}
+
 static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			 off_t offset, struct fuse_file_info *fi,
 			 enum fuse_readdir_flags flags)
 {
-	(void) offset;
-	(void) fi;
-	(void) flags;
-
-    DIR dir;
     FRESULT res;
     FRESULT rv = FR_OK;
 
+    DIR *dir = NULL;
+
+    int hasRDP = ((flags & FUSE_READDIR_PLUS) == FUSE_READDIR_PLUS);
+
     int i;
 
-    nfileinfo = 0;
-    currentFileInfo = &fileinfo[0];
+    printf( "readdir: offset: %lld, readdirplus: %d\n", offset, hasRDP );
 
-    res = f_opendir( &dir, path );
-    if ( res != FR_OK ) {
-        fprintf( stderr, "f_opendir failed: %d\n", res );
-        return FRESULT_TO_OSCODE( res );
+    dir = (DIR *)fi->fh; 
+    if ( dir == NULL ) {
+        return -ENOENT;
     }
 
-    res = f_readdir( &dir, currentFileInfo );
+    unsigned int nfileinfo = offset;
+    FILINFO finfo;
+    memset( &finfo, 0, sizeof( FILINFO ) );
+
+    struct stat st;
+    memset( &st, 0, sizeof( st ) );
+    if ( offset == 0 ) {
+        nfileinfo++;    /** readdirplus offset needs to start at 1.. */
+    }
+
+    printf( "nfileinfo: %d\toffset: %d\n", nfileinfo, offset );
+
+    /** Add default directories */
+    if ( offset == 0 ) {
+        st.st_mode = S_IFDIR | 0755;
+        st.st_nlink = 2;
+        if ( filler( buf, ".", &st, nfileinfo++, FUSE_FILL_DIR_PLUS ) ) {
+            printf( "failed to inject .\n" );
+        }
+        if ( filler( buf, "..", &st, nfileinfo++, FUSE_FILL_DIR_PLUS ) ) {
+            printf( "failed to inject ..\n" );
+        }
+    }
+
+    res = f_readdir( dir, &finfo );
     if ( res != FR_OK ) {
         fprintf( stderr, "f_readdir failed: %d\n", res );
         rv = res;
         goto readdir_cleanup;
     }
 
-    while ( res == FR_OK && currentFileInfo->fname[0] ) {
+    while ( res == FR_OK && finfo.fname[0] ) {
+        memset( &st, 0, sizeof( st ) );
+        if ( (finfo.fattrib & AM_DIR) == AM_DIR ) {
+            st.st_mode = S_IFDIR | 0755;
+            st.st_nlink = 2;
+            st.st_size = 0;
+        } else {
+            st.st_size = finfo.fsize;
+            st.st_mode = S_IFREG | 0644;
+            st.st_nlink = 1;
+        }
+
+        if ( filler( buf, finfo.fname, &st, nfileinfo, FUSE_FILL_DIR_PLUS ) ) {
+            /** We need to rewind the readdir call here... */
+            f_seekdir( dir, -1 );
+            break;
+        }
 
         nfileinfo++;
-        currentFileInfo++;
 
-        res = f_readdir( &dir, currentFileInfo );
+        res = f_readdir( dir, &finfo );
         if ( res != FR_OK ) {
             printf( "f_readdir failed: %d\n", res );
             rv = res;
@@ -229,23 +290,25 @@ static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t fil
     }
 
 readdir_cleanup:
-    res = f_closedir( &dir );
+	return FRESULT_TO_OSCODE( rv );
+}
+
+static int spi_fat_fuse_releasedir( const char *path, struct fuse_file_info *fi ) {
+
+    FRESULT res;
+    DIR *dir = NULL;
+
+    dir = (DIR *)fi->fh;
+    if ( dir == NULL ) {
+        return -ENOENT;
+    }
+
+    res = f_closedir( dir );
     if ( res != FR_OK ) {
         printf( "f_closedir() failed: %d\n", res );
     }
 
-    if ( rv == FR_OK ) {
-        filler( buf, ".", NULL, 0, 0 );
-        filler( buf, "..", NULL, 0, 0 );
-
-        currentFileInfo = &fileinfo[0];
-        for ( i = 0 ; i < nfileinfo ; i++ ) {
-            filler( buf, currentFileInfo->fname, NULL, 0, 0 );
-            currentFileInfo++;
-        }
-    }
-
-	return FRESULT_TO_OSCODE( rv );
+    return FRESULT_TO_OSCODE( res );
 }
 
 static int spi_fat_fuse_open(const char *path, struct fuse_file_info *fi)
@@ -259,13 +322,38 @@ static int spi_fat_fuse_open(const char *path, struct fuse_file_info *fi)
         mode = FA_READ;
     }
 
-    res = f_open( &fp, path, mode );
+    FIL *fp = malloc( sizeof( FIL ) );
+    if ( fp == NULL ) {
+        return ENOENT;
+    }
+
+    res = f_open( fp, path, mode );
     if ( res != FR_OK ) {
         printf( "f_open failed: %d\n", res );
+        fi->fh = 0;
         return FRESULT_TO_OSCODE( res );
+    } else {
+        fi->fh = (uint64_t)fp;
     }
 
 	return 0;
+}
+
+static int spi_fat_fuse_release( const char *path, struct fuse_file_info *fi)
+{
+    FRESULT res;
+
+    FIL *fp = (FIL *)fi->fh;
+    if ( fp == NULL ) {
+        return ENOENT;
+    }
+
+    res = f_close( fp );
+    if ( res != FR_OK ) {
+        printf( "f_close failed: %d\n", res );
+    }
+
+    return FRESULT_TO_OSCODE( res );
 }
 
 static int spi_fat_fuse_read(const char *path, char *buf, size_t size, off_t offset,
@@ -277,13 +365,18 @@ static int spi_fat_fuse_read(const char *path, char *buf, size_t size, off_t off
 
     printf( "fuse_read: %s -> %d bytes (%lld offset)\n", path, size, offset );
 
-    res = f_lseek( &fp, offset );
+    FIL *fp = (FIL *)fi->fh;
+    if ( fp == NULL ) {
+        return ENOENT;
+    }
+
+    res = f_lseek( fp, offset );
     if ( res != FR_OK ) {
         printf( "failed to f_seek(): %d\n", res );
         return FRESULT_TO_OSCODE( res );
     }
 
-    res = f_read( &fp, buf, size, &bread );
+    res = f_read( fp, buf, size, &bread );
     if ( res != FR_OK ) {
         printf( "failed to f_read(): %d\n", res );
         return FRESULT_TO_OSCODE( res );
@@ -295,9 +388,12 @@ static int spi_fat_fuse_read(const char *path, char *buf, size_t size, off_t off
 static const struct fuse_operations spi_fat_fuse_oper = {
 	.init       = spi_fat_fuse_init,
 	.getattr	= spi_fat_fuse_getattr,
+    .opendir    = spi_fat_fuse_opendir,
 	.readdir	= spi_fat_fuse_readdir,
+    .releasedir = spi_fat_fuse_releasedir,
 	.open		= spi_fat_fuse_open,
 	.read		= spi_fat_fuse_read,
+    .release    = spi_fat_fuse_release
 };
 
 static void show_help(const char *progname)
