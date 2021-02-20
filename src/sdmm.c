@@ -55,7 +55,7 @@
 
 #define NEEDS_SLOWDOWN
 #ifdef NEEDS_SLOWDOWN
-#define NOP() bcm2835_gpio_lev(DO_PIN); bcm2835_gpio_lev(DO_PIN); bcm2835_gpio_lev(DO_PIN)        /** ~100ns no-op */
+#define NOP() bcm2835_gpio_lev(DO_PIN); bcm2835_gpio_lev(DO_PIN)         /** ~40ns no-op */
 #else
 #define NOP()
 #endif
