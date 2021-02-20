@@ -3,8 +3,21 @@
   Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
   Copyright (C) 2021  Alligator Descartes <alligator.descartes@hermitretro.com>
 
-  This program can be distributed under the terms of the GNU GPLv2.
-  See the file COPYING.
+ This file is part of spi-fat-fuse.
+
+     spi-fat-fuse is free software: you can redistribute it and/or modify
+     it under the terms of the GNU General Public License as published by
+     the Free Software Foundation, either version 3 of the License, or
+     (at your option) any later version.
+
+     spi-fat-fuse is distributed in the hope that it will be useful,
+     but WITHOUT ANY WARRANTY; without even the implied warranty of
+     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+     GNU General Public License for more details.
+
+     You should have received a copy of the GNU General Public License
+     along with spi-fat-fuse.  If not, see <https://www.gnu.org/licenses/>.
+
 */
 
 /** @file
@@ -14,7 +27,6 @@
  * ## Source code ##
  * \include spi-fat-fuse.c
  */
-
 
 #define FUSE_USE_VERSION 31
 
