@@ -1,65 +1,35 @@
-/*----------------------------------------------------------------------*/
-/* Foolproof FatFs sample project for AVR              (C)ChaN, 2014    */
-/*----------------------------------------------------------------------*/
+/**
+ * Stress test program for SDMM/FatFS handling
+ *
+ * Copyright (c)2021 Hermit Retro Products Ltd. <https://hermitretro.com>
+ *
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef USE_WIRINGPI
-#include <wiringPi.h>
-#else
-#include "bcm2835.h"
-#endif
 #include <unistd.h>
 
+#include "bcm2835.h"
 #include "ff.h"		/* Declarations of FatFs API */
 
-FATFS FatFs;		/* FatFs work area needed for each volume */
-FIL Fil;			/* File object needed for each open file */
+FATFS fatfs;		/* FatFs work area needed for each volume */
 
 int nfiles = 0;
 int ndirs = 0;
 
-FILINFO fileinfo[255];
+/** Size of each test file in bytes */
+#define RANDOMBUFSZ (48 * 1024)
+
+#define MAXFILES 32
+FILINFO fileinfo[MAXFILES];
 FILINFO *currentFileInfo;
 int nfileinfo = 0;
 
-const char *expectedFilenames[] = {
-    "SPOTLI~1",
-    "FSEVEN~1",
-    "3DDEAT~1.TZX",
-    "AMAUROTE.TZX",
-    "GLIDER~1.TZX",
-    "_GLIDE~1.TZX",
-    "STARGLD1.TAP",
-    "_STARG~1.TAP",
-    "SABREW~1.TAP",
-    "_SABRE~1.TAP",
-    "STARGL~1.TZX",
-    "_STARG~1.TZX",
-    "STARGL~2.TZX",
-    "_STARG~2.TZX",
-    "STARQU~1.TZX",
-    "_STARQ~1.TZX",
-    "JETPAC.TAP",
-    "MANICM~1.TZX",
-    "PSSST.TAP",
-    "LORDSMID.TAP",
-    "_LORDS~1.TAP",
-    "FULLTHR1.TAP",
-    "_FULLT~1.TAP",
-    "ATICATAC.TAP",
-    "_ATICA~1.TAP",
-    "TANKDUEL.TAP",
-    "_TANKD~1.TAP",
-    "GRNBERET.TAP",
-    "_GRNBE~1.TAP",
-    "FEUD.TAP",
-    "_FEU~1.TAP",
-    "INFO"
-};
+char expectedFilenames[MAXFILES][255] = { 0 };
+uint64_t expectedChecksums[MAXFILES] = { 0 };
 
-FRESULT scan_files( char *path, UINT quiet ) {
+FRESULT scan_files( const char *path, UINT quiet ) {
 	DIR dir;
 	FRESULT res;
 
@@ -112,70 +82,271 @@ cleanup:
 	return FR_OK;
 }
 
+/**
+ * Create X test files named '0000.DAT' with random data. Also store the
+ * total of the contents.
+ *
+ * Returns: number of files created
+ */
+int create_test_files( const char *parentdir, int nfilesToCreate ) {
+
+    FRESULT res;
+    FIL fp;
+    char filename[255];
+
+    int i, j;
+
+    unsigned char randombuf[RANDOMBUFSZ];
+    unsigned char *randombufptr = randombuf;
+
+    /** Create a test directory */
+    res = f_mkdir( parentdir );
+    if ( res == FR_OK ) {
+        printf( "mkdir ok\n" );
+    } else {
+        printf( "mkdir failed: %d\n", res );
+        return 1;
+    }
+
+    /** Create the files within the test directory */
+    int nfilesCreated = 0;
+    for ( i = 0 ; i < nfilesToCreate ; i++ ) {
+        sprintf( filename, "%04d.DAT", i );
+        strcpy( expectedFilenames[i], filename );
+
+        char path[255];
+        sprintf( path, "%s/%s", parentdir, filename );
+
+	    res = f_open( &fp, path, (FA_WRITE | FA_CREATE_ALWAYS) );
+	    if ( res == FR_OK ) {
+            /** Fill the file with random data */
+            FILE *devu = fopen( "/dev/urandom", "rb" );
+            randombufptr = randombuf;
+            for ( j = 0 ; j < RANDOMBUFSZ ; j++ ) {
+                int rv = fread( randombufptr, 1, 1, devu );
+                if ( rv != 1 ) {
+                    printf( "random read failed. data will be junk\n" );
+                    break;
+                }
+                expectedChecksums[i] += *randombufptr;
+                randombufptr++; 
+            }
+
+            UINT bw;
+		    res = f_write( &fp, randombuf, RANDOMBUFSZ, &bw );
+            if ( res == FR_OK ) {
+                if ( bw == RANDOMBUFSZ ) {
+                    printf( "write ok\n" );
+                } else {
+                    printf( "write operation ok but wrong data size written: %d (should be %d)\n", bw, RANDOMBUFSZ );
+                }
+            } else {
+                printf( "write failed: %d\n", res );
+            }
+
+            fclose( devu );
+
+		    res = f_close( &fp );
+		    if ( res == FR_OK ) {
+			    printf( "fclose ok\n" );
+                nfilesCreated++;
+	    	} else {
+                printf( "fclose failed\n" );
+            }
+	    } else {
+		    printf( "it doesn't work: %d\n", res );
+            break;
+	    }
+    }
+
+    return nfilesCreated;
+}
+
+int remove_test_files( const char *parentdir ) {
+
+    FRESULT res;
+    FILINFO lfileinfo;
+    int i;
+    char filename[255];
+
+    res = f_stat( parentdir, &lfileinfo );
+    printf( "f_stat: %d\n", res );
+    if ( res == FR_OK ) {
+        /** Something exists.... */
+        if ( (lfileinfo.fattrib & AM_DIR) == AM_DIR ) {
+            /** ...and is a directory.. */
+            /** Remove all the files first... */
+            res = scan_files( parentdir, 0 );
+            if ( res == FR_OK ) {
+                for ( i = 0 ; i < nfileinfo ; i++ ) {
+                    printf( "removing[%d]: %s\n", i, fileinfo[i].fname );
+                    sprintf( filename, "%s/%s", parentdir, fileinfo[i].fname );
+                    res = f_unlink( filename );
+                    if ( res == FR_OK ) {
+                        printf( "unlinked[%d]: %s\n", i, filename );
+                    } else {
+                        printf( "failed to unlink[%d]: %s -> %d\n", i, filename, res );
+                        return 1;
+                    }
+                }
+
+                /** Finally, unlink the parent directory.. */
+                res = f_unlink( parentdir );
+                if ( res == FR_OK ) {
+                    printf( "parentdir unlink ok\n" );
+                } else {
+                    printf( "parentdir unlink failed: %d\n", res );
+                    return 1;
+                }
+            } else {
+                printf( "failed to scan files for removal: %d\n", res );
+                return 1;
+            }
+        } else {
+            /** ...it's a file */
+            res = f_unlink( parentdir );
+            if ( res == FR_OK ) {
+                printf( "unlink ok\n" );
+            } else {
+                printf( "unlink failed: %d\n", res );
+                return 1;
+            }
+        }
+    } else {
+        printf( "failed to stat parent directory for removal: %d\n", res );
+        if ( res == FR_NO_FILE ) {
+            printf( "...but this is ok because it can't be found\n" );
+            return 0;
+        } else {
+            printf( "...f_stat failed for a more severe reason: %d\n", res );
+            if ( res == FR_NOT_READY ) {
+                printf( "...SD card not ready\nThis is possibly due to a previously incomplete run\nRetry in 60 seconds\n" );
+            }
+        }
+        return 1;
+    }
+
+    return 0;
+}
+
 int main (void)
 {
-	//UINT bw;
-	FRESULT fr;
+	FRESULT res;
 
-#ifdef USE_WIRINGPI
-	if ( wiringPiSetup() == 0 ) {
-		printf( "wiringPi init'd ok\n" );
-	}
-    piHiPri( 99 );
-#else
-    bcm2835_init();
-#endif
+    if ( bcm2835_init() ) {
+        printf( "bcm2835 init ok\n" );
+    } else {
+        printf( "bcm2835 failed to init. fatal\n" );
+        exit( 1 );
+    }
 
-	f_mount(&FatFs, "", 0);		/* Give a work area to the default drive */
+	res = f_mount( &fatfs, "", 1 );
+    if ( res != FR_OK ) {
+        printf( "failed to mount drive: %d\n", res );
+        printf( "Is the SD card formatted as FAT (not FAT32 or ExFAT)\n" );
+        printf( "Try ejecting the card and re-inserting it\n" );
+    } else {
+        printf( "drive mounted ok\n" );
+    }
 
-#ifdef PANTS
-	fr = f_open(&Fil, "newfile.txt", FA_WRITE | FA_CREATE_ALWAYS);	/* Create a file */
-	if (fr == FR_OK) {
-		f_write(&Fil, "It works!\r\n", 11, &bw);	/* Write data to the file */
-		fr = f_close(&Fil);							/* Close the file */
-		if (fr == FR_OK && bw == 11) {		/* Lights green LED if data written well */
-			printf( "ok\n" );
-		}
-		return 0;
-	} else {
-		printf( "it doesn't work: %d\n", fr );
-	}
-#endif
+    /** Remove any stale test files */
+    int rv = remove_test_files( "/STRESSSD" );
+    if ( rv ) {
+        printf( "failed to remove test files satisfactorially...\n" );
+        exit( 1 );
+    } else {
+        printf( "removed test files ok...\n" );
+    }
 
+    /** Create the test files */
+    nfiles = create_test_files( "/STRESSSD", MAXFILES );
+    printf( "created %d test files. expected: %d\n", nfiles, MAXFILES );
+
+    if ( nfiles != MAXFILES ) {
+        printf( "failed to create expected number of files\n" );
+        exit( 1 );
+    }
+
+    /** Scan the directory and check the file integrity */
     int quiet = 1;
 
-    int niterations = 10000;
+    int niterations = 10;
     int nmatches = 0;
     int nmismatches = 0;
     int ncorruptions = 0;
-    int i = 0, j = 0;
+    int i = 0, j = 0, k = 0;
 
     for ( i = 0 ; i < niterations ; i++ ) {
-	    fr = scan_files( "/", 1 );
-	    if ( fr == FR_OK ) {
+	    res = scan_files( "/STRESSSD", quiet );
+	    if ( res == FR_OK ) {
 		    printf( "file scan[%d] ok: %d dirs, %d files\n", i, ndirs, nfiles );
 
-            if ( ndirs == 5 && nfiles == 32 ) {
+            if ( ndirs == 0 && nfiles == MAXFILES ) {
                 printf( "-> scan_files ok\n" );
 
-                /** Check filenames */
+                /** Check filenames haven't corrupted */
                 UINT hasCorruption = 0;
-                for ( j = 0 ; j < 32 ; j++ ) {
+                for ( j = 0 ; j < MAXFILES ; j++ ) {
                     if ( strcmp( expectedFilenames[j], fileinfo[j].fname ) != 0 ) {
                         printf( "filename fail[%d]: '%s' != expected '%s'\n", j, fileinfo[j].fname, expectedFilenames[j] );
                         hasCorruption = 1;
                         ncorruptions++;
                     }
-                }
-                if ( hasCorruption ) {
-                    printf( "!! corrupt filenames\n" );
-                } else {
-                    printf( "-> correct filenames\n" );
+
+                    if ( hasCorruption ) {
+                        printf( "!! corrupt filename\n" );
+                        printf( "!! skipping file contents check\n" );
+                    } else {
+                        printf( "-> correct filenames\n" );
+
+                        /** Check file sizes */
+                        if ( fileinfo[j].fsize != RANDOMBUFSZ ) {
+                            printf( "!! corrupt file size: %d != %d\n", fileinfo[j].fsize, RANDOMBUFSZ );
+                        } else {
+                            printf( "filesize check ok\n" );
+
+                            /** Check file contents checksum */
+                            FIL fp;
+                            uint64_t checksum = 0;
+                            char path[255];
+                            sprintf( path, "/STRESSSD/%s", fileinfo[j].fname );
+                            res = f_open( &fp, path, FA_READ );
+                            if ( res != FR_OK ) {
+                                printf( "failed to open file for integrity check: %d\n", res );
+                            } else {
+                                unsigned char buf[RANDOMBUFSZ];
+                                unsigned char *bufptr = buf;
+
+                                UINT br = 0;
+                                for ( k = 0 ; k < RANDOMBUFSZ ; k++ ) {
+                                    res = f_read( &fp, bufptr, 1, &br );
+                                    if ( res != FR_OK && br != 1 ) {
+                                        printf( "failed to read file: %d\n", res );
+                                    } else {
+                                        checksum += *bufptr;
+                                    }
+                
+                                    bufptr++;
+                                } 
+
+                                res = f_close( &fp );
+                                if ( res != FR_OK ) {
+                                    printf( "failed to close file after integrity check: %d\n", res );
+                                }
+
+                                if ( checksum == expectedChecksums[j] ) {
+                                    printf( "file integrity check passed: %lld == %lld\n", checksum, expectedChecksums[j] );
+                                } else {
+                                    printf( "!! file integrity check failed : %lld got != %lld expected\n", checksum, expectedChecksums[j] );
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if ( !quiet ) {
                     for ( j = 0 ; j < nfileinfo ; j++ ) {
-                        printf( "%s, %d\n", fileinfo[j].fname, ((fileinfo[j].fattrib & AM_DIR) == AM_DIR) );
+                        printf( "%s, %d, %lld\n", fileinfo[j].fname, fileinfo[j].fsize, expectedChecksums[j] );
                     }
                 }
                 nmatches++;
@@ -192,28 +363,15 @@ int main (void)
 
     printf( "Scan Results: %d matches, %d mismatches, %d corruptions, %d total\n", nmatches, nmismatches, ncorruptions, niterations );
 
-    fr = f_open( &Fil, "/GLIDER~1.TZX", FA_READ );
-	if ( fr == FR_OK ) {
-		printf( "fopen ok\n" );
+    /** Tidy up */
+    remove_test_files( "/STRESSSD" );
 
-		unsigned char *buf = malloc( 256 * 1024 );
-		UINT bytesRead = 0;
-		fr = f_read( &Fil, buf, 256 * 1024, &bytesRead );
-		if ( fr == FR_OK ) {
-			printf( "fread ok: %d bytes read\n", bytesRead );
-		} else {
-			printf( "fread failed: %d\n", fr );
-		}
-
-		fr = f_close( &Fil );
-		if ( fr == FR_OK ) {
-			printf( "fclose ok\n" );
-		} else {
-			printf( "fclose failed\n" );
-		}
-	} else {
-		printf( "fopen failed: %d\n", fr );
-	}
+    res = f_mount( NULL, "", 0 );
+    if ( res == FR_OK ) {
+        printf( "unmounted volume ok\n" );
+    } else {
+        printf( "failed to unmount volume: %d\n", res );
+    }
 
 	return 1;
 }
