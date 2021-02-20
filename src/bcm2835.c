@@ -33,14 +33,6 @@
 */
 /* #define I2C_V1*/
 
-/* Uncommenting this will force the use of /dev/gpiomem and /dev/mem will
-// be ignored. The rationale for this is that under buildroot on a Raspberry
-// Pi Zero with bit-banged SPI, the initialisation of the SPI subsystem in
-// here stops the bit-banged SPI working. As it's a buildroot environment,
-// it defaultly runs as root.
-*/
-/* #define BCM2835_IGNORE_DEV_MEM */
-
 /* Physical address and size of the peripherals block
 // May be overridden on RPi2
 */
@@ -507,9 +499,8 @@ void bcm2835_gpio_pudclk(uint8_t pin, uint8_t on)
 /* Read GPIO pad behaviour for groups of GPIOs */
 uint32_t bcm2835_gpio_pad(uint8_t group)
 {
-  if (bcm2835_pads == MAP_FAILED) {
+  if (bcm2835_pads == MAP_FAILED)
     return 0;
-  }
   
     volatile uint32_t* paddr = bcm2835_pads + BCM2835_PADS_GPIO_0_27/4 + group;
     return bcm2835_peri_read(paddr);
@@ -521,9 +512,8 @@ uint32_t bcm2835_gpio_pad(uint8_t group)
 */
 void bcm2835_gpio_set_pad(uint8_t group, uint32_t control)
 {
-  if (bcm2835_pads == MAP_FAILED) {
+  if (bcm2835_pads == MAP_FAILED)
     return;
-  }
   
     volatile uint32_t* paddr = bcm2835_pads + BCM2835_PADS_GPIO_0_27/4 + group;
     bcm2835_peri_write(paddr, control | BCM2835_PAD_PASSWRD);
@@ -1867,17 +1857,12 @@ int bcm2835_init(void)
      * If we are not root, try for the new /dev/gpiomem interface and accept
      * the fact that we can only access GPIO
      * else try for the /dev/mem interface and get access to everything
-     *
-     * If BCM2835_IGNORE_DEV_MEM is defined, go straight to /dev/gpiomem
      */
     memfd = -1;
     ok = 0;
-    if (geteuid() == 0 
+    if (geteuid() == 0
 #ifdef BCM2835_HAVE_LIBCAP
 	|| bcm2835_has_capability(CAP_SYS_RAWIO)
-#endif
-#ifdef BCM2835_IGNORE_DEV_MEM
-    && 0
 #endif
 	)
     {

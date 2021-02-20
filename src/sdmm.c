@@ -42,20 +42,37 @@
 #define CK_PIN RPI_GPIO_P1_23
 #define CS_PIN RPI_GPIO_P1_24
 
+/** 
+ * This interface does a lot of H->L and L->H transitions during read/write.
+ * Under buildroot, it would appear the transient duration is not reliably
+ * long in duration to register correctly. Under "slower" systems, the
+ * interface works. To give the H/L pulses some shape, delay a little based
+ * on GPIO speed. Don't use bcm2835_delayMicroseconds() as, if not running as
+ * root, it has a 200ms penalty and the SD card acccesses will become
+ * unusably slow
+ */
+
+#define NEEDS_SLOWDOWN
+#ifdef NEEDS_SLOWDOWN
+#define NOP() bcm2835_gpio_lev(DO_PIN); bcm2835_gpio_lev(DO_PIN); bcm2835_gpio_lev(DO_PIN)        /** ~100ns no-op */
+#else
+#define NOP()
+#endif
+
 #define DO_INIT()	bcm2835_gpio_set_pud(DO_PIN, BCM2835_GPIO_PUD_UP)				/* Initialize port for MMC DO as input */
 #define DO		bcm2835_gpio_lev(DO_PIN)	/* Test for MMC DO ('H':true, 'L':false) */
 
-#define DI_INIT()	bcm2835_gpio_set_pud(DI_PIN, BCM2835_GPIO_PUD_OFF); bcm2835_gpio_fsel(DI_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(DI_PIN)
-#define DI_H()		bcm2835_gpio_set(DI_PIN) 	/* Set MMC DI "high" */
-#define DI_L()		bcm2835_gpio_clr(DI_PIN)	/* Set MMC DI "low" */
+#define DI_INIT()	bcm2835_gpio_set_pud(DI_PIN, BCM2835_GPIO_PUD_UP); bcm2835_gpio_fsel(DI_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(DI_PIN)
+#define DI_H()		bcm2835_gpio_set(DI_PIN); NOP() 	/* Set MMC DI "high" */
+#define DI_L()		bcm2835_gpio_clr(DI_PIN); NOP()	/* Set MMC DI "low" */
 
-#define CK_INIT()	bcm2835_gpio_set_pud(CK_PIN, BCM2835_GPIO_PUD_OFF); bcm2835_gpio_fsel(CK_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_clr(CK_PIN)
-#define CK_H()		bcm2835_gpio_set(CK_PIN)		/* Set MMC SCLK "high" */
-#define	CK_L()		bcm2835_gpio_clr(CK_PIN) 		/* Set MMC SCLK "low" */
+#define CK_INIT()	bcm2835_gpio_set_pud(CK_PIN, BCM2835_GPIO_PUD_DOWN); bcm2835_gpio_fsel(CK_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_clr(CK_PIN)
+#define CK_H()		bcm2835_gpio_set(CK_PIN); NOP()		/* Set MMC SCLK "high" */
+#define	CK_L()		bcm2835_gpio_clr(CK_PIN); NOP() 		/* Set MMC SCLK "low" */
 
-#define CS_INIT()	bcm2835_gpio_set_pud(CS_PIN, BCM2835_GPIO_PUD_OFF); bcm2835_gpio_fsel(CS_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(CS_PIN)
-#define	CS_H()		bcm2835_gpio_set(CS_PIN)	/* Set MMC CS "high" */
-#define CS_L()		bcm2835_gpio_clr(CS_PIN)	/* Set MMC CS "low" */
+#define CS_INIT()	bcm2835_gpio_set_pud(CS_PIN, BCM2835_GPIO_PUD_UP); bcm2835_gpio_fsel(CS_PIN, BCM2835_GPIO_FSEL_OUTP); bcm2835_gpio_set(CS_PIN)
+#define	CS_H()		bcm2835_gpio_set(CS_PIN); NOP()	/* Set MMC CS "high" */
+#define CS_L()		bcm2835_gpio_clr(CS_PIN); NOP()	/* Set MMC CS "low" */
 
 
 static
@@ -119,21 +136,21 @@ void xmit_mmc (
 
 	do {
 		d = *buff++;	/* Get a byte to be sent */
-		if (d & 0x80) DI_H(); else DI_L();	/* bit7 */
+		if (d & 0x80) { DI_H(); } else { DI_L(); }	/* bit7 */
 		CK_H(); CK_L();
-		if (d & 0x40) DI_H(); else DI_L();	/* bit6 */
+		if (d & 0x40) { DI_H(); } else { DI_L(); }	/* bit6 */
 		CK_H(); CK_L();
-		if (d & 0x20) DI_H(); else DI_L();	/* bit5 */
+		if (d & 0x20) { DI_H(); } else { DI_L(); }	/* bit5 */
 		CK_H(); CK_L();
-		if (d & 0x10) DI_H(); else DI_L();	/* bit4 */
+		if (d & 0x10) { DI_H(); } else { DI_L(); }	/* bit4 */
 		CK_H(); CK_L();
-		if (d & 0x08) DI_H(); else DI_L();	/* bit3 */
+		if (d & 0x08) { DI_H(); } else { DI_L(); }	/* bit3 */
 		CK_H(); CK_L();
-		if (d & 0x04) DI_H(); else DI_L();	/* bit2 */
+		if (d & 0x04) { DI_H(); } else { DI_L(); }	/* bit2 */
 		CK_H(); CK_L();
-		if (d & 0x02) DI_H(); else DI_L();	/* bit1 */
+		if (d & 0x02) { DI_H(); } else { DI_L(); }	/* bit1 */
 		CK_H(); CK_L();
-		if (d & 0x01) DI_H(); else DI_L();	/* bit0 */
+		if (d & 0x01) { DI_H(); } else { DI_L(); }	/* bit0 */
 		CK_H(); CK_L();
 	} while (--bc);
 }
