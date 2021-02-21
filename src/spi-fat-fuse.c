@@ -255,9 +255,10 @@ static int spi_fat_fuse_opendir( const char *path, struct fuse_file_info *fi ) {
     return FRESULT_TO_OSCODE( res );
 }
 
-static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-			 off_t offset, struct fuse_file_info *fi,
-			 enum fuse_readdir_flags flags)
+static int spi_fat_fuse_readdir( const char *path, void *buf, 
+                                 fuse_fill_dir_t filler,
+			                     off_t offset, struct fuse_file_info *fi,
+			                     enum fuse_readdir_flags flags )
 {
     FRESULT res;
     FRESULT rv = FR_OK;
@@ -291,6 +292,7 @@ static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t fil
     if ( offset == 0 ) {
         st.st_mode = S_IFDIR | 0755;
         st.st_nlink = 2;
+        st.st_ino = 0xffffffff; /** Needs to be set otherwise these directories won't add in plus mode. This value corresponds to FUSE_UNKNOWN_INO in fuse.c */
         if ( filler( buf, ".", &st, nfileinfo++, FUSE_FILL_DIR_PLUS ) ) {
             printf( "failed to inject .\n" );
         }
@@ -316,6 +318,13 @@ static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t fil
             st.st_size = finfo.fsize;
             st.st_mode = S_IFREG | 0644;
             st.st_nlink = 1;
+
+            /** Compute blocks used for 'ls -l' total */
+            st.st_blocks = (finfo.fsize / 512);
+            if ( (finfo.fsize % 512) != 0 ) {
+                st.st_blocks++;
+            }
+            st.st_blksize = 512;
         }
 
         /**
