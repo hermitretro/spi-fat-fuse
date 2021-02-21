@@ -324,7 +324,6 @@ static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t fil
          * These are demangled in open() and getattr()
          */
         if ( finfo.fname[0] == '_' ) {
-            printf( "resource fork found: %s\n", finfo.fname );
             finfo.fname[0] = '.';
         }
 
