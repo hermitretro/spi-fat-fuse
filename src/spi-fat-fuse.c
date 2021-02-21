@@ -62,6 +62,35 @@ static const struct fuse_opt option_spec[] = {
 	FUSE_OPT_END
 };
 
+/**
+ * Rename files starting with '.' into starting with '_', e.g., macOS
+ * resource forks
+ *
+ * Returns: 0 = fail, 1 = success
+ */
+int renameHidden( const char *inpath, char *outpath, size_t outpathsz ) {
+
+    int i;
+
+    if ( outpath == NULL || outpathsz == 0 ) {
+        return 0;
+    }
+
+    strncpy( outpath, inpath, outpathsz );
+    for ( i = 0 ; i < strlen( outpath ) ; i++ ) {
+        if ( outpath[i] == '.' ) {
+            if ( i > 0 ) {
+                if ( outpath[i - 1] == '/' ) {
+                    outpath[i] = '_';
+                }
+            }
+        }
+    }
+
+    return 1;
+}
+
+
 static int FRESULT_TO_OSCODE( int res ) {
     switch ( res ) {
         case FR_OK: {
@@ -172,6 +201,10 @@ static int spi_fat_fuse_getattr(const char *path, struct stat *stbuf,
         return 0;
     }
 
+    /** Demangle the path for hidden files */
+    char lpath[255];
+    renameHidden( path, lpath, 255 ); 
+
     /**
      * Retry loop. Depending on the access rate to the underlying card
      * the f_stat() call can transiently fail
@@ -179,10 +212,10 @@ static int spi_fat_fuse_getattr(const char *path, struct stat *stbuf,
     int ntries = 0;
     int maxtries = 1;
 fstat_retry:
-    res = f_stat( path, &finfo );
+    res = f_stat( lpath, &finfo );
     if ( res != FR_OK ) {
         printf( "f_stat failed: %d\n", res );
-        if ( ntries > maxtries ) {
+        if ( ntries >= maxtries ) {
             return FRESULT_TO_OSCODE( res );
         } else {
             ntries++;
@@ -285,6 +318,16 @@ static int spi_fat_fuse_readdir(const char *path, void *buf, fuse_fill_dir_t fil
             st.st_nlink = 1;
         }
 
+        /**
+         * Hidden files are translated to begin with '_'. Rename them on
+         * the fly to start with '.' to behave as per a UNIX hidden file.
+         * These are demangled in open() and getattr()
+         */
+        if ( finfo.fname[0] == '_' ) {
+            printf( "resource fork found: %s\n", finfo.fname );
+            finfo.fname[0] = '.';
+        }
+
         if ( filler( buf, finfo.fname, &st, nfileinfo, FUSE_FILL_DIR_PLUS ) ) {
             /** We need to rewind the readdir call here... */
             f_seekdir( dir, -1 );
@@ -326,6 +369,7 @@ static int spi_fat_fuse_releasedir( const char *path, struct fuse_file_info *fi 
 static int spi_fat_fuse_open(const char *path, struct fuse_file_info *fi)
 {
     FRESULT res;
+    int i;
 
     printf( "fuse_open: %s (mode %d)\n", path, fi->flags );
 
@@ -339,7 +383,13 @@ static int spi_fat_fuse_open(const char *path, struct fuse_file_info *fi)
         return ENOENT;
     }
 
-    res = f_open( fp, path, mode );
+    /**
+     * If the filename starts with a '.', translate it to '_'
+     */
+    char lpath[255];
+    renameHidden( path, lpath, 255 );
+
+    res = f_open( fp, lpath, mode );
     if ( res != FR_OK ) {
         printf( "f_open failed: %d\n", res );
         fi->fh = 0;
