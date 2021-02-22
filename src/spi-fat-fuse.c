@@ -167,19 +167,7 @@ static void *spi_fat_fuse_init(struct fuse_conn_info *conn,
 
     bcm2835_init();
 
-    FATFS *fatfs = malloc( sizeof( FATFS ) );
-    if ( fatfs == NULL ) {
-        return NULL;
-    }
-    memset( fatfs, 0, sizeof( FATFS ) );
-
-    FRESULT res = f_mount( fatfs, "", 0 );
-    if ( res != FR_OK ) {
-        printf( "f_mount failed: %d\n", res );
-        fuse_get_context()->private_data = NULL;
-    }
-
-    fuse_get_context()->private_data = (void *)fatfs;
+    fuse_get_context()->private_data = NULL;
 
 	return NULL;
 }
@@ -241,6 +229,24 @@ static int spi_fat_fuse_opendir( const char *path, struct fuse_file_info *fi ) {
     FRESULT res;
     DIR *dir;
     
+    /** Lazy filesystem mount */
+    if ( fuse_get_context()->private_data == NULL ) {
+        FATFS *fatfs = malloc( sizeof( FATFS ) );
+        if ( fatfs == NULL ) {
+            return FR_DISK_ERR;
+        }
+        memset( fatfs, 0, sizeof( FATFS ) );
+
+        FRESULT res = f_mount( fatfs, "", 0 );
+        if ( res != FR_OK ) {
+            printf( "f_mount failed: %d\n", res );
+            fuse_get_context()->private_data = NULL;
+            return FRESULT_TO_OSCODE( res );
+        }
+
+        fuse_get_context()->private_data = (void *)fatfs;
+    }
+
     dir = malloc( sizeof( DIR ) );
     memset( dir, 0, sizeof( DIR ) );
 
@@ -304,6 +310,15 @@ static int spi_fat_fuse_readdir( const char *path, void *buf,
     res = f_readdir( dir, &finfo );
     if ( res != FR_OK ) {
         fprintf( stderr, "f_readdir failed: %d\n", res );
+        if ( res == FR_DISK_ERR ) {
+            /** SD card has probably been ejected */
+            printf( "card has probably been ejected. invalidate filesystem for remounting\n" );
+            if ( fuse_get_context()->private_data != NULL ) {
+                free( fuse_get_context()->private_data );
+                fuse_get_context()->private_data = NULL;
+            }
+        }
+            
         rv = res;
         goto readdir_cleanup;
     }
@@ -370,6 +385,9 @@ static int spi_fat_fuse_releasedir( const char *path, struct fuse_file_info *fi 
     if ( res != FR_OK ) {
         printf( "f_closedir() failed: %d\n", res );
     }
+
+    free( dir );
+    fi->fh = 0;
 
     return FRESULT_TO_OSCODE( res );
 }
