@@ -27,6 +27,25 @@
 #include "bcm2835.h"
 #include "ff.h"		/* Declarations of FatFs API */
 
+typedef enum { NONE, INFO, WARN, TRACE } DebugLevel;
+DebugLevel debugLevel = NONE;
+#define DEBUG_PRINT(level,...) \
+if ( debugLevel >= level ) {\
+    if ( level == INFO ) { \
+        printf( "== " ); \
+    } else { \
+        if ( level == WARN ) { \
+            printf( "!! " ); \
+        } else { \
+            if ( level == TRACE ) { \
+                printf( ">> " ); \
+            } \
+        } \
+    } \
+    printf( __VA_ARGS__ ); \
+    fflush( stdout ); \
+}
+
 FATFS fatfs;		/* FatFs work area needed for each volume */
 
 int nfiles = 0;
@@ -43,7 +62,7 @@ int nfileinfo = 0;
 char expectedFilenames[MAXFILES][255] = { 0 };
 uint64_t expectedChecksums[MAXFILES] = { 0 };
 
-FRESULT scan_files( const char *path, UINT quiet ) {
+FRESULT scan_files( const char *path ) {
 	DIR dir;
 	FRESULT res;
 
@@ -54,19 +73,15 @@ FRESULT scan_files( const char *path, UINT quiet ) {
 	if ( ( res = f_opendir( &dir, path ) ) == FR_OK ) {
 		res = f_readdir( &dir, currentFileInfo );
         if ( res != FR_OK ) {
-            printf( "f_readdir failed: %d\n", res );
+            DEBUG_PRINT( WARN, "f_readdir failed: %d\n", res );
             goto cleanup;
         }
 		while ( res == FR_OK && currentFileInfo->fname[0] ) {
 		    if ( currentFileInfo->fattrib & AM_DIR ) {
-                if ( !quiet ) {
-		            printf( ">>> %s\n", currentFileInfo->fname );
-                }
+		        DEBUG_PRINT( TRACE, ">>> %s\n", currentFileInfo->fname );
                 ndirs++;
 			} else {
-                if ( !quiet ) {
-			        printf( "%s\n", currentFileInfo->fname );
-                }
+			    DEBUG_PRINT( TRACE, "%s\n", currentFileInfo->fname );
                 nfiles++;
 			}
             nfileinfo++;
@@ -74,7 +89,7 @@ FRESULT scan_files( const char *path, UINT quiet ) {
 
 			res = f_readdir( &dir, currentFileInfo );
             if ( res != FR_OK ) {
-                printf( "f_readdir failed: %d\n", res );
+                DEBUG_PRINT( WARN, "f_readdir failed: %d\n", res );
                 goto cleanup;
             }
 		}
@@ -82,14 +97,12 @@ FRESULT scan_files( const char *path, UINT quiet ) {
 cleanup:
         res = f_closedir( &dir );
         if ( res != FR_OK ) {
-            printf( "f_closedir() failed: %d\n", res );
+            DEBUG_PRINT( WARN, "f_closedir() failed: %d\n", res );
         } else {
-            if ( !quiet ) {
-                printf( "f_closedir() ok\n" );
-            }
+            DEBUG_PRINT( TRACE, "f_closedir() ok\n" );
         }
 	} else {
-		printf( "f_opendir failed: %d\n", res );
+		DEBUG_PRINT( WARN, "f_opendir failed: %d\n", res );
 		return res;
 	}
 
@@ -116,9 +129,9 @@ int create_test_files( const char *parentdir, int nfilesToCreate ) {
     /** Create a test directory */
     res = f_mkdir( parentdir );
     if ( res == FR_OK ) {
-        printf( "mkdir ok\n" );
+        DEBUG_PRINT( TRACE, "mkdir ok\n" );
     } else {
-        printf( "mkdir failed: %d\n", res );
+        DEBUG_PRINT( WARN, "mkdir failed: %d\n", res );
         return 1;
     }
 
@@ -139,7 +152,7 @@ int create_test_files( const char *parentdir, int nfilesToCreate ) {
             for ( j = 0 ; j < RANDOMBUFSZ ; j++ ) {
                 int rv = fread( randombufptr, 1, 1, devu );
                 if ( rv != 1 ) {
-                    printf( "random read failed. data will be junk\n" );
+                    DEBUG_PRINT( WARN, "random read failed. data will be junk\n" );
                     break;
                 }
                 expectedChecksums[i] += *randombufptr;
@@ -150,25 +163,25 @@ int create_test_files( const char *parentdir, int nfilesToCreate ) {
 		    res = f_write( &fp, randombuf, RANDOMBUFSZ, &bw );
             if ( res == FR_OK ) {
                 if ( bw == RANDOMBUFSZ ) {
-                    printf( "write ok\n" );
+                    DEBUG_PRINT( TRACE, "write ok\n" );
                 } else {
-                    printf( "write operation ok but wrong data size written: %d (should be %d)\n", bw, RANDOMBUFSZ );
+                    DEBUG_PRINT( WARN, "write operation ok but wrong data size written: %d (should be %d)\n", bw, RANDOMBUFSZ );
                 }
             } else {
-                printf( "write failed: %d\n", res );
+                DEBUG_PRINT( WARN, "write failed: %d\n", res );
             }
 
             fclose( devu );
 
 		    res = f_close( &fp );
 		    if ( res == FR_OK ) {
-			    printf( "fclose ok\n" );
+			    DEBUG_PRINT( TRACE, "fclose ok\n" );
                 nfilesCreated++;
 	    	} else {
-                printf( "fclose failed\n" );
+                DEBUG_PRINT( WARN, "fclose failed\n" );
             }
 	    } else {
-		    printf( "it doesn't work: %d\n", res );
+		    DEBUG_PRINT( WARN, "it doesn't work: %d\n", res );
             break;
 	    }
     }
@@ -184,22 +197,23 @@ int remove_test_files( const char *parentdir ) {
     char filename[255];
 
     res = f_stat( parentdir, &lfileinfo );
-    printf( "f_stat: %d\n", res );
+    DEBUG_PRINT( TRACE, "f_stat: %d\n", res );
+
     if ( res == FR_OK ) {
         /** Something exists.... */
         if ( (lfileinfo.fattrib & AM_DIR) == AM_DIR ) {
             /** ...and is a directory.. */
             /** Remove all the files first... */
-            res = scan_files( parentdir, 0 );
+            res = scan_files( parentdir );
             if ( res == FR_OK ) {
                 for ( i = 0 ; i < nfileinfo ; i++ ) {
-                    printf( "removing[%d]: %s\n", i, fileinfo[i].fname );
+                    DEBUG_PRINT( TRACE, "removing[%d]: %s\n", i, fileinfo[i].fname );
                     sprintf( filename, "%s/%s", parentdir, fileinfo[i].fname );
                     res = f_unlink( filename );
                     if ( res == FR_OK ) {
-                        printf( "unlinked[%d]: %s\n", i, filename );
+                        DEBUG_PRINT( TRACE, "unlinked[%d]: %s\n", i, filename );
                     } else {
-                        printf( "failed to unlink[%d]: %s -> %d\n", i, filename, res );
+                        DEBUG_PRINT( WARN, "failed to unlink[%d]: %s -> %d\n", i, filename, res );
                         return 1;
                     }
                 }
@@ -207,34 +221,34 @@ int remove_test_files( const char *parentdir ) {
                 /** Finally, unlink the parent directory.. */
                 res = f_unlink( parentdir );
                 if ( res == FR_OK ) {
-                    printf( "parentdir unlink ok\n" );
+                    DEBUG_PRINT( TRACE, "parentdir unlink ok\n" );
                 } else {
-                    printf( "parentdir unlink failed: %d\n", res );
+                    DEBUG_PRINT( WARN, "parentdir unlink failed: %d\n", res );
                     return 1;
                 }
             } else {
-                printf( "failed to scan files for removal: %d\n", res );
+                DEBUG_PRINT( WARN, "failed to scan files for removal: %d\n", res );
                 return 1;
             }
         } else {
             /** ...it's a file */
             res = f_unlink( parentdir );
             if ( res == FR_OK ) {
-                printf( "unlink ok\n" );
+                DEBUG_PRINT( TRACE, "unlink ok\n" );
             } else {
-                printf( "unlink failed: %d\n", res );
+                DEBUG_PRINT( WARN, "unlink failed: %d\n", res );
                 return 1;
             }
         }
     } else {
-        printf( "failed to stat parent directory for removal: %d\n", res );
+        DEBUG_PRINT( WARN, "failed to stat parent directory for removal: %d\n", res );
         if ( res == FR_NO_FILE ) {
-            printf( "...but this is ok because it can't be found\n" );
+            DEBUG_PRINT( WARN, "...but this is ok because it can't be found\n" );
             return 0;
         } else {
-            printf( "...f_stat failed for a more severe reason: %d\n", res );
+            DEBUG_PRINT( WARN, "...f_stat failed for a more severe reason: %d\n", res );
             if ( res == FR_NOT_READY ) {
-                printf( "...SD card not ready\nThis is possibly due to a previously incomplete run\nRetry in 60 seconds\n" );
+                DEBUG_PRINT( WARN, "...SD card not ready\nThis is possibly due to a previously incomplete run\nRetry in 60 seconds\n" );
             }
         }
         return 1;
@@ -247,77 +261,80 @@ int main (void)
 {
 	FRESULT res;
 
+    debugLevel = WARN;
+
     if ( bcm2835_init() ) {
-        printf( "bcm2835 init ok\n" );
+        DEBUG_PRINT( INFO, "bcm2835 init ok\n" );
     } else {
-        printf( "bcm2835 failed to init. fatal\n" );
+        DEBUG_PRINT( INFO, "bcm2835 failed to init. fatal\n" );
         exit( 1 );
     }
 
 	res = f_mount( &fatfs, "", 1 );
     if ( res != FR_OK ) {
-        printf( "failed to mount drive: %d\n", res );
-        printf( "Is the SD card formatted as FAT (not FAT32 or ExFAT)\n" );
-        printf( "Try ejecting the card and re-inserting it\n" );
+        DEBUG_PRINT( WARN, "failed to mount drive: %d\n", res );
+        DEBUG_PRINT( WARN, "Is the SD card formatted as FAT (not FAT32 or ExFAT)\n" );
+        DEBUG_PRINT( WARN, "Try ejecting the card and re-inserting it\n" );
     } else {
-        printf( "drive mounted ok\n" );
+        DEBUG_PRINT( TRACE, "drive mounted ok\n" );
     }
 
     /** Remove any stale test files */
+    DEBUG_PRINT( INFO, "Removing test files...\n" );
     int rv = remove_test_files( "/STRESSSD" );
     if ( rv ) {
-        printf( "failed to remove test files satisfactorially...\n" );
+        DEBUG_PRINT( WARN, "failed to remove test files satisfactorially...\n" );
         exit( 1 );
     } else {
-        printf( "removed test files ok...\n" );
+        DEBUG_PRINT( INFO, "Removed test files ok...\n" );
     }
 
     /** Create the test files */
+    DEBUG_PRINT( INFO, "Creating test files...\n" );
     nfiles = create_test_files( "/STRESSSD", MAXFILES );
-    printf( "created %d test files. expected: %d\n", nfiles, MAXFILES );
+    DEBUG_PRINT( INFO, "Created %d test files. expected: %d\n", nfiles, MAXFILES );
 
     if ( nfiles != MAXFILES ) {
-        printf( "failed to create expected number of files\n" );
+        DEBUG_PRINT( WARN, "failed to create expected number of files\n" );
         exit( 1 );
     }
 
     /** Scan the directory and check the file integrity */
-    int quiet = 1;
-
-    int niterations = 10;
+    int niterations = 1;
     int nmatches = 0;
     int nmismatches = 0;
     int ncorruptions = 0;
     int i = 0, j = 0, k = 0;
 
     for ( i = 0 ; i < niterations ; i++ ) {
-	    res = scan_files( "/STRESSSD", quiet );
+        DEBUG_PRINT( INFO, "Testing files. Iteration %d of %i\n", i + 1, niterations );
+	    res = scan_files( "/STRESSSD" );
 	    if ( res == FR_OK ) {
-		    printf( "file scan[%d] ok: %d dirs, %d files\n", i, ndirs, nfiles );
+		    DEBUG_PRINT( TRACE, "file scan[%d] ok: %d dirs, %d files\n", i, ndirs, nfiles );
 
             if ( ndirs == 0 && nfiles == MAXFILES ) {
-                printf( "-> scan_files ok\n" );
+                DEBUG_PRINT( TRACE, "-> scan_files ok\n" );
 
                 /** Check filenames haven't corrupted */
                 UINT hasCorruption = 0;
                 for ( j = 0 ; j < MAXFILES ; j++ ) {
                     if ( strcmp( expectedFilenames[j], fileinfo[j].fname ) != 0 ) {
-                        printf( "filename fail[%d]: '%s' != expected '%s'\n", j, fileinfo[j].fname, expectedFilenames[j] );
+                        DEBUG_PRINT( WARN, "filename fail[%d]: '%s' != expected '%s'\n", j, fileinfo[j].fname, expectedFilenames[j] );
                         hasCorruption = 1;
                         ncorruptions++;
                     }
 
                     if ( hasCorruption ) {
-                        printf( "!! corrupt filename\n" );
-                        printf( "!! skipping file contents check\n" );
+                        DEBUG_PRINT( WARN, "!! corrupt filename\n" );
+                        DEBUG_PRINT( WARN, "!! skipping file contents check\n" );
                     } else {
-                        printf( "-> correct filenames\n" );
+                        DEBUG_PRINT( TRACE, "-> correct filenames\n" );
 
                         /** Check file sizes */
                         if ( fileinfo[j].fsize != RANDOMBUFSZ ) {
-                            printf( "!! corrupt file size: %d != %d\n", fileinfo[j].fsize, RANDOMBUFSZ );
+                            DEBUG_PRINT( WARN, "corrupt file size: %d != %d\n", fileinfo[j].fsize, RANDOMBUFSZ );
                         } else {
-                            printf( "filesize check ok\n" );
+                            DEBUG_PRINT( TRACE, "filesize check ok\n" );
 
                             /** Check file contents checksum */
                             FIL fp;
@@ -326,7 +343,7 @@ int main (void)
                             sprintf( path, "/STRESSSD/%s", fileinfo[j].fname );
                             res = f_open( &fp, path, FA_READ );
                             if ( res != FR_OK ) {
-                                printf( "failed to open file for integrity check: %d\n", res );
+                                DEBUG_PRINT( WARN, "failed to open file for integrity check: %d\n", res );
                             } else {
                                 unsigned char buf[RANDOMBUFSZ];
                                 unsigned char *bufptr = buf;
@@ -335,7 +352,7 @@ int main (void)
                                 for ( k = 0 ; k < RANDOMBUFSZ ; k++ ) {
                                     res = f_read( &fp, bufptr, 1, &br );
                                     if ( res != FR_OK && br != 1 ) {
-                                        printf( "failed to read file: %d\n", res );
+                                        DEBUG_PRINT( WARN, "failed to read file: %d\n", res );
                                     } else {
                                         checksum += *bufptr;
                                     }
@@ -345,46 +362,49 @@ int main (void)
 
                                 res = f_close( &fp );
                                 if ( res != FR_OK ) {
-                                    printf( "failed to close file after integrity check: %d\n", res );
+                                    DEBUG_PRINT( WARN, "failed to close file after integrity check: %d\n", res );
                                 }
 
                                 if ( checksum == expectedChecksums[j] ) {
-                                    printf( "file integrity check passed: %lld == %lld\n", checksum, expectedChecksums[j] );
+                                    DEBUG_PRINT( TRACE, "file integrity check passed: %lld == %lld\n", checksum, expectedChecksums[j] );
                                 } else {
-                                    printf( "!! file integrity check failed : %lld got != %lld expected\n", checksum, expectedChecksums[j] );
+                                    DEBUG_PRINT( WARN, "file integrity check failed : %lld got != %lld expected\n", checksum, expectedChecksums[j] );
                                 }
                             }
                         }
                     }
                 }
 
-                if ( !quiet ) {
-                    for ( j = 0 ; j < nfileinfo ; j++ ) {
-                        printf( "%s, %d, %lld\n", fileinfo[j].fname, fileinfo[j].fsize, expectedChecksums[j] );
-                    }
+                for ( j = 0 ; j < nfileinfo ; j++ ) {
+                    DEBUG_PRINT( TRACE, "%s, %d, %lld\n", fileinfo[j].fname, fileinfo[j].fsize, expectedChecksums[j] );
                 }
                 nmatches++;
             } else {
-                printf( "!! scan_files mismatch\n" );
+                DEBUG_PRINT( WARN, "scan_files mismatch\n" );
                 nmismatches++;
             }
 	    } else {
-		    printf( "file scan[%d] failed\n", i );
+		    DEBUG_PRINT( WARN, "file scan[%d] failed\n", i );
 	    }
-
-//        sleep( 1 );
     }
 
-    printf( "Scan Results: %d matches, %d mismatches, %d corruptions, %d total\n", nmatches, nmismatches, ncorruptions, niterations );
+    DEBUG_PRINT( INFO, "Scan Results: %d iterations, %d pass, %d fail, %d corruptions, %d iterations\n", niterations, nmatches, nmismatches, ncorruptions );
 
     /** Tidy up */
-    remove_test_files( "/STRESSSD" );
+    DEBUG_PRINT( INFO, "Removing test files...\n" );
+    rv = remove_test_files( "/STRESSSD" );
+    if ( rv ) {
+        DEBUG_PRINT( WARN, "failed to remove test files satisfactorially...\n" );
+        exit( 1 );
+    } else {
+        DEBUG_PRINT( INFO, "Removed test files ok...\n" );
+    }
 
     res = f_mount( NULL, "", 0 );
     if ( res == FR_OK ) {
-        printf( "unmounted volume ok\n" );
+        DEBUG_PRINT( INFO, "Unmounted volume ok\n" );
     } else {
-        printf( "failed to unmount volume: %d\n", res );
+        DEBUG_PRINT( WARN, "failed to unmount volume: %d\n", res );
     }
 
 	return 1;
