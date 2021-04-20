@@ -22,7 +22,6 @@
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
 
-
 /*--------------------------------------------------------------------------
 
    Module Private Definitions
@@ -1766,12 +1765,11 @@ static FRESULT _dir_incdec (	/* FR_OK(0):succeeded, FR_NO_FILE:End of table, FR_
 	DWORD ofs, clst;
 	FATFS *fs = dp->obj.fs;
 
-
 	ofs = dp->dptr + (SZDIRE * direction);	/* Next entry */
 	if (ofs >= (DWORD)((FF_FS_EXFAT && fs->fs_type == FS_EXFAT) ? MAX_DIR_EX : MAX_DIR)) dp->sect = 0;	/* Disable it if the offset reached the max value */
 	if (dp->sect == 0) return FR_NO_FILE;	/* Report EOT if it has been disabled */
 
-	if (ofs % SS(fs) == 0) {	/* Sector changed? */
+	if (ofs % SS(fs) == 0 && direction == 1 ) {	/* Sector changed? */
 		dp->sect++;				/* Next sector */
 
 		if (dp->clust == 0) {	/* Static table */
