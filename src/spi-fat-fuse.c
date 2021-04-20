@@ -288,9 +288,7 @@ static int spi_fat_fuse_readdir( const char *path, void *buf,
 
     struct stat st;
     memset( &st, 0, sizeof( st ) );
-    if ( offset == 0 ) {
-        nfileinfo++;    /** readdirplus offset needs to start at 1.. */
-    }
+    nfileinfo++;    /** readdirplus offset needs to start at 1.. */
 
     printf( "nfileinfo: %d\toffset: %d\n", nfileinfo, offset );
 
@@ -353,8 +351,11 @@ static int spi_fat_fuse_readdir( const char *path, void *buf,
 
         if ( filler( buf, finfo.fname, &st, nfileinfo, FUSE_FILL_DIR_PLUS ) ) {
             /** We need to rewind the readdir call here... */
-            f_seekdir( dir, -1 );
-            break;
+            int lrv = f_seekdir( dir, -1 );
+            if ( lrv != FR_OK ) {
+                printf( "seekdir failed: %d\n", lrv );
+            }
+            goto readdir_cleanup;
         }
 
         nfileinfo++;
