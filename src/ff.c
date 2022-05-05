@@ -22,6 +22,8 @@
 #include "ff.h"			/* Declarations of FatFs API */
 #include "diskio.h"		/* Declarations of device I/O functions */
 
+#include <time.h>
+
 /*--------------------------------------------------------------------------
 
    Module Private Definitions
@@ -6932,3 +6934,22 @@ FRESULT f_setcp (
 }
 #endif	/* FF_CODE_PAGE == 0 */
 
+#if !FF_FS_NORTC
+/** Returns the current time as a FAT timestamp */
+DWORD get_fattime() {
+
+    time_t lnow = time( NULL );
+    struct tm *ltime = localtime( &lnow );
+
+    unsigned long fatTimestamp =
+        ( ((ltime->tm_year - 80) << 25) |
+          ((ltime->tm_mon + 1) << 21) |
+          (ltime->tm_mday << 16) |
+          (ltime->tm_hour << 11) |
+          (ltime->tm_min << 5) |
+          ltime->tm_sec >> 1
+        );
+
+    return fatTimestamp;
+}
+#endif
