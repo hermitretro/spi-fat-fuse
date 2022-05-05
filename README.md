@@ -20,14 +20,16 @@ starting point.
 
 # Current Status
 
-This is a very experimental repository. Currently working:
+This is an experimental repository but has been used extensively in Hermit
+Retro Products' ZXZero system. 
 
-* Directory listing with attributes
+Most filesystem operations including:
+
+* Directory create, list, deletel (with attributes)
 * File read (cp, cat, etc....)
+* File write
 
-To be implemented:
-
-* Anything involving write-back
+are all implemented with timestamping.
 
 # Hardware
 
